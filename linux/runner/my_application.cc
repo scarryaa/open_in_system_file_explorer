@@ -15,31 +15,43 @@ struct _MyApplication {
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
 // Handler for the file explorer method channel
-static void method_call_handler(FlMethodChannel *channel,
-                                FlMethodCall *method_call, gpointer user_data) {
+static void method_call_handler(FlMethodChannel* channel,
+                              FlMethodCall* method_call,
+                              gpointer user_data) {
   g_autoptr(FlMethodResponse) response = nullptr;
-  const gchar *method = fl_method_call_get_name(method_call);
-  FlValue *args = fl_method_call_get_args(method_call);
+  const gchar* method = fl_method_call_get_name(method_call);
+  FlValue* args = fl_method_call_get_args(method_call);
 
-  if (FL_IS_MAP(args)) {
-    FlValue *path_value = fl_value_lookup_string(args, "path");
-    if (path_value && FL_IS_STRING(path_value)) {
-      const gchar *path = fl_value_get_string(path_value);
-
-      if (g_strcmp0(method, "openFile") == 0 ||
-          g_strcmp0(method, "openDirectory") == 0) {
-        g_autofree gchar *command = g_strdup_printf("xdg-open \"%s\"", path);
-        system(command);
-        response = FL_METHOD_RESPONSE(
-            fl_method_success_response_new(fl_value_new_bool(TRUE)));
-      }
-    } else {
-      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
-          "INVALID_ARGUMENTS", "Path argument is required", nullptr));
+  if (fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+    FlValue* path_value = fl_value_lookup_string(args, "path");
+    if (path_value && fl_value_get_type(path_value) == FL_VALUE_TYPE_STRING) {
+      const gchar* path = fl_value_get_string(path_value);
+      
+if (g_strcmp0(method, "openFile") == 0) {
+    // Try nautilus first (GNOME)
+    g_autofree gchar* nautilus_command = g_strdup_printf("nautilus --select \"%s\"", path);
+    int ret = system(nautilus_command);
+    
+    // If nautilus fails, try dolphin (KDE)
+    if (ret != 0) {
+        g_autofree gchar* dolphin_command = g_strdup_printf("dolphin --select \"%s\"", path);
+        ret = system(dolphin_command);
     }
-  } else {
-    response = FL_METHOD_RESPONSE(fl_method_error_response_new(
-        "INVALID_ARGUMENTS", "Arguments must be a map", nullptr));
+    
+    // If both fail, just open the parent directory
+    if (ret != 0) {
+        g_autofree gchar* parent_dir = g_path_get_dirname(path);
+        g_autofree gchar* fallback_command = g_strdup_printf("xdg-open \"%s\"", parent_dir);
+        system(fallback_command);
+    }
+    
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(fl_value_new_bool(TRUE)));
+} else if (g_strcmp0(method, "openDirectory") == 0) {
+    g_autofree gchar* command = g_strdup_printf("xdg-open \"%s\"", path);
+    system(command);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(fl_value_new_bool(TRUE)));
+}
+  }
   }
 
   if (!response) {
